@@ -1,0 +1,22 @@
+# $Id: typemap,v 1.3 2003/09/02 01:43:06 dirt Exp $
+
+TYPEMAP
+struct poptContext_wrapper*     T_CONTEXT_WRAPPER
+struct poptOption_wrapper*      T_OPTION_WRAPPER
+struct poptAlias_wrapper*       T_ALIAS_WRAPPER
+# this is here to squash warning messages
+const char *                    T_CONST_CHAR_PTR
+
+INPUT
+T_CONTEXT_WRAPPER
+    $var = get_context_wrapper($arg)
+
+T_OPTION_WRAPPER
+    $var = get_option_wrapper($arg)
+
+T_ALIAS_WRAPPER
+    $var = get_alias_wrapper($arg)
+
+OUTPUT
+T_CONST_CHAR_PTR
+    sv_setpv((SV*)$arg, $var);
