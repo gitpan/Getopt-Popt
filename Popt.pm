@@ -1,4 +1,14 @@
-# $Id: Popt.pm,v 1.39 2003/09/08 01:38:42 dirt Exp $
+# $Id: Popt.pm,v 1.41 2004/11/26 22:22:13 dirt Exp $
+# vim: et ts=8 sts=4 sw=4 syn=perl
+#
+# Getopt::Popt - an interface to the popt(3) library
+#
+# Written and directed by: James Baker
+# Staring: Perl 5
+# Featuring: C and XS
+# Copyright: 2004 James Baker
+# License: Same as Perl's
+
 package Getopt::Popt;
 use strict;
 use warnings;
@@ -7,8 +17,11 @@ use Scalar::Util qw(dualvar); # XXX: only standard in 5.8
 use Carp qw(croak);
 use base qw(Exporter DynaLoader);
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
+# 
+# Setup constants
+#
 use constant ARGFLAG_CONSTANTS => [qw(
     POPT_ARGFLAG_AND POPT_ARGFLAG_DOC_HIDDEN POPT_ARGFLAG_LOGICALOPS
     POPT_ARGFLAG_NAND POPT_ARGFLAG_NOR POPT_ARGFLAG_NOT POPT_ARGFLAG_ONEDASH
@@ -32,6 +45,8 @@ use constant ERROR_CONSTANTS => [qw(
 
 use constant AUTOHELP_CONSTANTS => [qw(POPT_AUTOHELP)];
 
+# define a new constant that's loaded later
+sub POPT_AUTOHELP { new Getopt::Popt::Option::AUTOHELP; }
 
 our %EXPORT_TAGS = ( 
         argflag     => ARGFLAG_CONSTANTS,
@@ -50,13 +65,7 @@ our %EXPORT_TAGS = (
                        ], 
         );
 
-# define a new constant that's loaded later
-sub POPT_AUTOHELP {
-    new Getopt::Popt::Option::AUTOHELP;
-}
-
 our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
-
 
 # Dynamically define constants as they're used. Caveat: if you don't
 # want to import a symbol, you have to do Getopt::Popt->[NAME] rather than
@@ -148,7 +157,7 @@ sub getNextOptChar {
     my $this = shift;
 
     # get the int flavor
-    my $rc = $this->getNextOpt();
+    my $rc = $this->getNextOpt(); # xs method call
 
     # end of stuff?
     if($rc == -1) {
@@ -480,7 +489,7 @@ C<Getopt::Popt> should look like a fairly natural object oriented mapping to all
 
 =over 4
 
-=item Getopt::Popt-E<gt>new( %params )
+=item C<Getopt::Popt-E<gt>new( %params )>
 
 Create a new Getopt::Popt context. Parameters map to the arguments to popt's
 C<poptGetContext()>, plus one additional argument:
@@ -499,28 +508,28 @@ Dies on an error.
 
 =over 4
 
-=item $alias_name 
+=item C<$alias_name >
 
 Name for lookup in alias definitions (see the popt(3) manpage). Can be
 empty.
 
-=item \@argv
+=item C<\@argv>
 
 Command line arguments, e.g. C<\@ARGV>. B<NOTE>: 
 C<\@argv> will be passed to popt as the array C<($0, @argv)> (a copy is made so
 that your C<\@argv> won't be modified) unless given the
 C<dont_prepend_progname> option (see below).
 
-=item $flags
+=item C<$flags>
 
 Context flags (see CONSTANTS). Defaults to 0.
 
-=item \@options
+=item C<\@options>
 
 Options array. All elements must be either a Getopt::Popt::Option or a
 hashref; hashrefs will be automagically converted into Getopt::Popt::Options.
 
-=item $dont_prepend_progname
+=item C<$dont_prepend_progname>
 
 Don't stick C<$0> before C<@argv>. Perl's C<@ARGV> just has arguments
 and does not include the current process name, but popt expects
@@ -533,10 +542,10 @@ Defaults to 0.
 
 =back
 
-=item Getopt::Popt::getNextOptChar()
+=item C<Getopt::Popt::getNextOptChar()>
 
 This is a wrapper around C<Getopt::Popt::getNextOpt()>. Returns a C<dualvar>
-(see \L<Scalar::Util>) rather than just an integer. In a numeric
+(see L<Scalar::Util>) rather than just an integer. In a numeric
 context (C<"0+$ch"> or C<"$ch == $number">) the return value is the
 integer value that C<Getopt::Popt::getNextOpt()> would've returned, and in a
 string context the return value is a character. Really all it saves
@@ -551,39 +560,43 @@ See the popt(3) manpage for details on these methods:
 
 =over 4
 
-=item Getopt::Popt::resetContext()
+=item C<Getopt::Popt::resetContext()>
 
-=item Getopt::Popt::getNextOpt()
+=item C<Getopt::Popt::getNextOpt()>
 
-=item Getopt::Popt::getOptArg()
+=item C<Getopt::Popt::getOptArg()>
 
-=item Getopt::Popt::getArg()
+=item C<Getopt::Popt::getArg()>
 
-=item Getopt::Popt::peekArg()
+=item C<Getopt::Popt::peekArg()>
 
-=item Getopt::Popt::getArgs()
+=item C<Getopt::Popt::getArgs()>
 
-=item Getopt::Popt::strerror($error)
+=item C<Getopt::Popt::strerror($error)>
 
-=item Getopt::Popt::badOption($flags)
+=item C<Getopt::Popt::badOption($flags)>
 
-=item Getopt::Popt::readDefaultConfig()
+=item C<Getopt::Popt::readDefaultConfig()>
 
-=item Getopt::Popt::readConfigFile()
+=item C<Getopt::Popt::readConfigFile()>
 
-=item Getopt::Popt::addAlias($alias, $flags)
+=item C<Getopt::Popt::addAlias($alias, $flags)>
 
-=item Getopt::Popt::setOtherOptionHelp($str)
+=item C<Getopt::Popt::setOtherOptionHelp($str)>
 
-=item Getopt::Popt::stuffArgs(@args)
+=item C<Getopt::Popt::stuffArgs(@args)>
 
 =back
 
 =head2 Getopt::Popt::Option
 
+=head3 SYNOPSIS
+
+Represents a C<struct poptOption>
+
 =over 4
 
-=item Getopt::Popt::Option-E<gt>new( %params )
+=item C<Getopt::Popt::Option-E<gt>new( %params )>
 
 Create a new option. C<%params> maps to popt's C<struct poptOption>:
 
@@ -601,24 +614,24 @@ Dies on an error.
 
 =over 4
 
-=item $longName
+=item C<$longName>
 
 Long name of the argument, e.g. C<"--foo">'s long name is C<"foo">.
 
-=item $shortName
+=item C<$shortName>
 
 Short name of the argument, e.g. C<"-f">'s short name is C<"f">. Must
 be a single character.
 
-=item $argInfo
+=item C<$argInfo>
 
 An integer, bitwise-ORed with different flags (see CONSTANTS below).
 
-=item \$arg
+=item C<\$arg>
 
 A scalar reference, with the scalar being set to the option argument value.
 
-=item $val
+=item C<$val>
 
 The value to be returned by C<getNextOpt()> (or C<getNextOptChar()>).
 Can be a single character or an integer.  
@@ -629,11 +642,11 @@ integer (and not the character representation of it), pass it in as
 operations (C<POPT_ARGFLAG_[AND|OR|XOR]>) that popt has, it's important
 that "1" be a 1 and not C<ord("1")> = 49. Otherwise you probably don't care.
 
-=item $descrip
+=item C<$descrip>
 
 Long description of the option, used in generating autohelp.
 
-=item $argDescrip
+=item C<$argDescrip>
 
 Short description of the argument to the option, used in generating autohelp.
 
@@ -645,19 +658,19 @@ Value getters (no setters):
 
 =over 4
 
-=item Getopt::Popt::Option::getLongName()
+=item C<Getopt::Popt::Option::getLongName()>
 
-=item Getopt::Popt::Option::getShortName()
+=item C<Getopt::Popt::Option::getShortName()>
 
-=item Getopt::Popt::Option::getArgInfo()
+=item C<Getopt::Popt::Option::getArgInfo()>
 
-=item Getopt::Popt::Option::getArg()
+=item C<Getopt::Popt::Option::getArg()>
 
-=item Getopt::Popt::Option::getVal()
+=item C<Getopt::Popt::Option::getVal()>
 
-=item Getopt::Popt::Option::getDescrip()
+=item C<Getopt::Popt::Option::getDescrip()>
 
-=item Getopt::Popt::Option::getArgDescrip()
+=item C<Getopt::Popt::Option::getArgDescrip()>
 
 =back
 
@@ -665,7 +678,11 @@ Value getters (no setters):
 
 =over 4
 
-=item Getopt::Popt::Alias-E<gt>new( %params )
+=head3 SYNOPSIS
+
+Represents a C<struct poptAlias>
+
+=item C<Getopt::Popt::Alias-E<gt>new( %params )>
 
 Create a new alias to pass to C<Getopt::Popt::addAlias()>. C<%params> maps to popt's C<struct poptAlias>:
 
@@ -846,7 +863,7 @@ popt(3), L<Getopt::Std>, L<Getopt::Long>, and everything in
 L<http://search.cpan.org/modlist/Option_Parameter_Config_Processing>
 
 The latest version of the popt library is distributed with
-rpm and is always available from: ftp://ftp.rpm.org/pub/rpm/dist.
+rpm and is always available from: L<ftp://ftp.rpm.org/pub/rpm/dist>.
 
 =head1 AUTHORS
 

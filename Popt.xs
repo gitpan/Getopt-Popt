@@ -1,4 +1,4 @@
-/* $Id: Popt.xs,v 1.47 2003/09/05 22:15:12 dirt Exp $
+/* $Id: Popt.xs,v 1.49 2004/11/26 22:22:13 dirt Exp $
  * vim: syn=xs ts=8 sts=4 sw=4 et fo=croql tw=70
  *
  * Perl XS interface to the popt(3) library.
@@ -13,20 +13,52 @@
 #include "XSUB.h"
 #include <stdlib.h>
 
-/* This is a wrapper to hold the argv and options arrays: 
- *     - need to free the allocated arrays and keep their scalar
- *       refcounts accurate, because I think popt returns pointers to
- *       positions within the string?
- *     - need to make a contiguous array of struct poptOptions to pass
- *       to popt, assembled out of the non-contiguous array of
- *       Getopt::Popt::Options
- *     - need to hack at the copied options array to strip off argInfo
- *       bitop flags (see _new_blessed_poptContext() and
- *       _assign_argref())
- *     - need to keep aliases around because their argv's are still
- *       used by popt, even if the alias object is undef'd and
- *       destroyed
- */
+/*
+=head1 NAME
+
+Popt.xs
+
+=head1 DESCRIPTION
+
+Most people won't care about the internals, but for the sake of
+completness, here's what's going on:
+
+=over
+
+=item C<struct poptContext_wrapper>
+
+This is a wrapper to hold the argv and options arrays.
+
+=over 4
+
+=item *
+
+need to free the allocated arrays and keep their scalar
+refcounts accurate, because I think popt returns pointers to positions
+within the string?
+
+=item *
+
+need to make a contiguous array of struct poptOptions to pass to
+popt, assembled out of the non-contiguous array of
+Getopt::Popt::Options
+
+=item *
+
+need to hack at the copied options array to strip off argInfo
+bitop flags (see _new_blessed_poptContext() and _assign_argref())
+
+=item *
+
+need to keep aliases around because their argv's are still used
+by popt, even if the alias object is undef'd and destroyed 
+
+=back
+
+=cut
+
+/* */
+
 struct poptContext_wrapper {
     /* argv array */
     AV *av_argv;
@@ -43,8 +75,17 @@ struct poptContext_wrapper {
     AV *av_aliases;
 };
 
-/* This wrapper holds the argv array so its refcount stays above 0. 
- * Stored as a scalar ref and blessed into Getopt::Popt::Alias */
+/*
+
+=item C<struct poptAlias_wrapper>
+
+This wrapper holds the argv array so its refcount stays above 0.
+Stored as a scalar ref and blessed into Getopt::Popt::Alias
+
+=cut
+
+/* */
+
 struct poptAlias_wrapper {
     AV* av_argv; /* place to hold onto args */
     struct poptAlias popt_alias; /* real data */
@@ -92,7 +133,7 @@ struct poptOption_wrapper *get_option_wrapper(SV* this) {
 MODULE = Getopt::Popt   PACKAGE = Getopt::Popt::Alias
 PROTOTYPES: DISABLE
 
-=cut
+=item C<_new_blessed_poptAlias(xclass, longName, shortName, argv)>
 
 NOTE: parameters are expected to be validated before this function
 gets called, although some validation is performed.
@@ -134,7 +175,7 @@ _new_blessed_poptAlias(xclass, longName, shortName, argv)
     }
     popt_alias->shortName = shortName;
 
-    /* get the argv array and increment its refcount*/
+    /* get the argv array */
     alias_wrapper->av_argv = (AV *) SvREFCNT_inc(SvRV(argv));
     popt_alias->argc = av_len(alias_wrapper->av_argv) + 1;
 
@@ -193,9 +234,7 @@ DESTROY(self)
 
 MODULE = Getopt::Popt   PACKAGE = Getopt::Popt::Option
 
-=head
-
-_new_blessed_poptOption()
+=item C<_new_blessed_poptOption(xclass, longName, shortName, argInfo, arg, val, descrip, argDescrip)>
 
 Create a new poptOption struct; the tricky part here is creating
 arg based on argInfo.
@@ -223,7 +262,7 @@ _new_blessed_poptOption(xclass, longName, shortName, argInfo, arg, val, descrip,
     /* create the option */
     Newz(78, self, 1, struct poptOption_wrapper);
 
-    /* assign the arg, if given */
+    /* copy the arg, if given */
     if(SvOK(arg)) {
         /* make sure it's a reference to a scalar/undef 
          * XXX: we're doing this twice (once in the calling code, again here) */
@@ -356,11 +395,14 @@ _new_blessed_poptOption(xclass, longName, shortName, argInfo, arg, val, descrip,
     sv_setref_pv(ST(0), xclass, (void*)self);
     XSRETURN(1);
 
-=cut
-
-_assign_argref($self)
+=item C<_assign_argref(self)>
 
 $self - blessed Getopt::Popt::Option
+
+Called from a getNextOpt(), which calls the popt function
+C<poptGetNextOpt>. popt should have assigned C<arg> in the 
+C<struct poptOption>; this method grabs that value and assigns the
+user's scalar C<$arg> to it.
 
 =cut
 
@@ -385,7 +427,7 @@ _assign_argref(self)
     /* figure out how to assign the numeric scalar */
     switch(popt_option->argInfo & POPT_ARG_MASK) {
     case POPT_ARG_NONE:
-        /* 'INT' and 'NONE' are the only one allowed to be null */
+        /* 'INT' and 'NONE' are the only ones allowed to be null */
         if(sv_arg == NULL) break;
     case POPT_ARG_INT:
         sv_setiv(sv_arg, *((int *)popt_option->arg));
@@ -397,11 +439,42 @@ _assign_argref(self)
          * stripped off in _new_blessed_poptContext(). Here we
          * re-assign the arg using popt's own functions and the user's
          * original val, so that the behavior is the same. */
+#ifdef poptSaveInt
         poptSaveInt(    (int *)popt_option->arg,    /* new value dest */
                         popt_option->argInfo,       /* user's orig argInfo */
                         popt_option->val);          /* user's orig val */
+#else
+        /* XXX: older versions of popt don't have poptSaveInt(), so
+         * the implementation from 1.7 is copied here for completeness
+         * and backwards compatibility */
 
+        if (popt_option->argInfo & POPT_ARGFLAG_NOT)
+            popt_option->val = ~popt_option->val;
+        switch (popt_option->argInfo & POPT_ARGFLAG_LOGICALOPS) {
+        case 0:
+            *((int *)popt_option->arg) = popt_option->val;
+            break;
+        case POPT_ARGFLAG_OR:
+            *((int *)popt_option->arg)  |= popt_option->val;
+            break;
+        case POPT_ARGFLAG_AND:
+            *((int *)popt_option->arg) &= popt_option->val;
+            break;
+        case POPT_ARGFLAG_XOR:
+            *((int *)popt_option->arg) ^= popt_option->val;
+            break;
+        default:
+            /* not handled */
+            break;
+        }
+        
+        /* restore the value */
+        if (popt_option->argInfo & POPT_ARGFLAG_NOT)
+            popt_option->val = ~popt_option->val;
+#endif
+        /* save the integer value into the perl scalar */
         sv_setiv(sv_arg, *((int *)popt_option->arg));
+
         break;
 
     case POPT_ARG_LONG:
@@ -461,7 +534,7 @@ _test_assign_arg(option_wrapper, str)
     }
     *((char **)option_wrapper->popt_option.arg) = str;
 
-=cut
+=item C<get*(option_wrapper)>
 
 Not a big fan of this mixed-case function name business, especially
 since this file isn't very consistent; but the precedence has been set
@@ -574,7 +647,7 @@ MODULE = Getopt::Popt   PACKAGE = Getopt::Popt
 =cut
 
 Constants are loaded in a somewhat hacky way (but IMHO cleaner than
-AutoLoader), creating function aliases for all constants to be
+AutoLoader). Function aliases are created for all constants to be
 autoloaded into the module.
 
 Currently unfinished values:
@@ -636,7 +709,9 @@ get_constant()
     RETVAL
 
 
-=cut
+=item C<_new_blessed_poptContext(xclass, name, argv, options, flags)>
+
+Creates a new popt context.
 
 We need to increment refcounts to argv (because char *'s will probably point
 into it) and options (because they contain a reference to the scalar we
@@ -645,6 +720,13 @@ could end up in a world of hurt, but it'd be their own damn fault.
 
 We assume parameters have been validated before this function gets called,
 although some validation is performed.
+
+The big hack here has to do with the fact that that popt wants the
+popt_options in a contiguous C-array of structs, but the perl code
+stores all that information as an array of scalars. So what we do is
+copy all the perl options into a new C-array, set the value of that
+option to the array index of the perl array, and then later in
+C<getNextOpt()>, figure out where everything goes.
 
 =cut
 
@@ -708,9 +790,10 @@ _new_blessed_poptContext(xclass, name, argv, options, flags)
          * options, and so we can muck with the argInfo stuff. */
         self->popt_options[item] = option_wrapper->popt_option;
 
-        /* strip off the OR/AND/XOR junk off argInfo so the arg
-         * doesn't get mutilated before we can perform bit ops on it
-         * with the _real_ val */
+        /* strip off the OR/AND/XOR junk off argInfo so val
+         * doesn't get mutilated (val is used as an index, see below).
+         * later we come back and apply any logical operations in
+         * _assign_argref() */
         if((self->popt_options[item].argInfo & POPT_ARG_MASK) == POPT_ARG_VAL) {
             self->popt_options[item].argInfo = POPT_ARG_NONE;
             if(self->popt_options[item].argInfo & POPT_ARGFLAG_OR) 
@@ -722,6 +805,7 @@ _new_blessed_poptContext(xclass, name, argv, options, flags)
 
         }
 
+        /* now we use the val as an index into the self->av_options array */
         self->popt_options[item].val = item+1; /* +1 to skip 0, 0 is supposedly reserved */
     }
     /* add the end marker */
@@ -769,6 +853,12 @@ DESTROY(self)
     /* free ourself */
     Safefree(self);
 
+=item C<getNextOpt(self)>
+
+Perl wrapper to C<poptGetNextOpt()>.
+
+=cut
+
 int
 getNextOpt(self)
     struct poptContext_wrapper *self 
@@ -793,7 +883,7 @@ getNextOpt(self)
         }
         
         /* assign this option's argref, i.e.
-         * $sv_option->_assign_argref() */
+         * call $sv_option->_assign_argref() */
         PUSHMARK(SP);
         XPUSHs(sv_option); /* Getopt::Popt::Option object */
         PUTBACK;
@@ -942,10 +1032,10 @@ addAlias(self, alias_wrapper, flags=0)
     OUTPUT:
     RETVAL
 
-=cut
+=item C<stuffArgs(self,...)>
 
-Note: will push onto the argv originally passed to Getopt::Popt::new() (does this so
-that stuffed args won't get garbage collected);
+Note: will push onto the argv originally passed to Getopt::Popt::new()
+(does this so that stuffed args won't get garbage collected);
 
 XXX: allocates a _temporary_ char **argv, which may cause problems if popt's
 implementation changes.
@@ -985,7 +1075,8 @@ stuffArgs(self,...)
     RETVAL = poptStuffArgs(self->popt_context, (const char **)ch_argv);
 
     /* XXX: poptStuffArgs() does a poptDupArgv() of ch_argv, so we
-     * should be able to safely deallocate ch_argv */
+     * should be able to safely deallocate ch_argv. XXX: could we use
+     * an alloca()? */
     Safefree(ch_argv);
 
     OUTPUT:
@@ -1000,8 +1091,32 @@ setOtherOptionHelp(self, str)
      * actually documented anywhere */
     poptSetOtherOptionHelp(self->popt_context, str);
 
-=cut
-TODO: printHelp(), printUsage(), callbacks, parseArgvString(),
-dupArgv()
+
+void
+printUsage(self, handle, flags=0)
+    struct poptContext_wrapper *self
+    FILE *handle
+    int flags
+    PPCODE:
+    if(!handle)
+        croak("bad file handle");
+    poptPrintUsage(self->popt_context, handle, flags);
+    
+void
+printHelp(self, handle, flags=0)
+    struct poptContext_wrapper *self
+    FILE *handle
+    int flags
+    PPCODE:
+    if(!handle)
+        croak("bad file handle");
+    poptPrintHelp(self->popt_context, handle, flags);
+    
+
+=back
+
+=head1 TODO
+
+callbacks, parseArgvString(), dupArgv()
 
 =cut
